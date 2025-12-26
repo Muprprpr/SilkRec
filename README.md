@@ -19,7 +19,7 @@
 
 **SilkRec** (formerly project smoothScreen) is a Windows screen recording tool built for creators who want high-quality tutorials without the hassle of video editing. 
 
-Traditional screen recorders capture the whole screen, making text hard to read. **SilkRec** intelligently detects your mouse position and activities, applying **butter-smooth automatic zooms** (inspired by tools like Screen Studio) in real-time. It makes your recordings look like they were professionally edited, straight out of the box.
+Traditional screen recorders capture the whole screen, making text hard to read. **SilkRec** intelligently detects your cursor position and activities, applying **butter-smooth automatic zooms** (inspired by tools like Screen Studio) in real-time. It makes your recordings look like they were professionally edited, straight out of the box.
 
 > "It's like having a cameraman inside your cursor."
 
