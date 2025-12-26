@@ -59,6 +59,12 @@ Contributions are what make the open source community such an amazing place to l
 
  See `LICENSE` for more information.
 
+
+
+ ## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Muprprpr/SilkRec&type=date&legend=top-left)](https://www.star-history.com/#Muprprpr/SilkRec&type=date&legend=top-left)
+
 ---
 <div align="center">
   Built with ❤️ for the Windows Community.
