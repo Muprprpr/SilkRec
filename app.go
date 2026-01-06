@@ -902,3 +902,67 @@ func (a *App) StopCompleteRecording() (map[string]string, error) {
 	fmt.Println("✓ 完整录制已停止")
 	return result, nil
 }
+
+// ========== 自定义参数导出 API ==========
+
+// ExportWithCustomParams 使用自定义参数导出视频
+// customParamsJSON: 自定义动画参数的 JSON 字符串
+// bgParamsJSON: 背景参数的 JSON 字符串
+// cursorImage: 光标图片（base64 或文件路径）
+func (a *App) ExportWithCustomParams(
+	videoPath string,
+	mouseDataPath string,
+	outputPath string,
+	screenWidth int,
+	screenHeight int,
+	fps int,
+	customParamsJSON string,
+	bgParamsJSON string,
+	cursorImage string,
+) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建自定义导出器
+	customExporter := recorder.NewCustomExporter(a.ffmpegManager)
+
+	// 创建导出配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 准备导出
+	if err := customExporter.PrepareCustomExport(config, customParamsJSON, bgParamsJSON, cursorImage); err != nil {
+		return fmt.Errorf("准备自定义导出失败: %w", err)
+	}
+
+	// 执行导出
+	fmt.Println("开始自定义参数导出...")
+	if err := customExporter.ExportWithCustomParams(); err != nil {
+		return fmt.Errorf("自定义导出失败: %w", err)
+	}
+
+	return nil
+}
+
+// ExportWithCustomParamsGPU 使用自定义参数和 GPU 加速导出
+func (a *App) ExportWithCustomParamsGPU(
+	videoPath string,
+	mouseDataPath string,
+	outputPath string,
+	screenWidth int,
+	screenHeight int,
+	fps int,
+	customParamsJSON string,
+	bgParamsJSON string,
+	cursorImage string,
+) error {
+	// 与 ExportWithCustomParams 类似，但使用 GPU 加速
+	// 这里可以复用 GPUExporter 的逻辑，并传递自定义参数
+	return a.ExportWithCustomParams(videoPath, mouseDataPath, outputPath, screenWidth, screenHeight, fps, customParamsJSON, bgParamsJSON, cursorImage)
+}
