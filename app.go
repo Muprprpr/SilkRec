@@ -26,6 +26,8 @@ type App struct {
 	ffmpegManager  *ffmpeg.FFmpegManager
 	recorder       *recorder.Recorder
 	mouseHook      *hook.MouseHook
+	keyboardHook   *hook.KeyboardHook
+	audioRecorder  *recorder.AudioRecorder
 	fileWriter     *io.FileWriter
 	pipeWriter     *recorder.PipeWriter
 	httpPipeServer *recorder.HttpPipeServer
@@ -709,4 +711,194 @@ func (a *App) GetExportInfo() map[string]interface{} {
 	}
 
 	return a.exporter.GetExportInfo()
+}
+
+// ========== 键盘事件录制 API ==========
+
+// StartKeyboardRecording 开始录制键盘事件
+func (a *App) StartKeyboardRecording() error {
+	if a.keyboardHook == nil {
+		a.keyboardHook = hook.NewKeyboardHook()
+	}
+
+	return a.keyboardHook.StartRecording()
+}
+
+// StopKeyboardRecording 停止录制键盘事件并返回文件路径
+func (a *App) StopKeyboardRecording(outputPath string) error {
+	if a.keyboardHook == nil {
+		return fmt.Errorf("键盘钩子未初始化")
+	}
+
+	if err := a.keyboardHook.StopRecording(); err != nil {
+		return err
+	}
+
+	// 保存到文件
+	return a.keyboardHook.SaveToFile(outputPath)
+}
+
+// GetKeyboardEvents 获取键盘事件（JSON 字符串）
+func (a *App) GetKeyboardEvents() (string, error) {
+	if a.keyboardHook == nil {
+		return "", fmt.Errorf("键盘钩子未初始化")
+	}
+
+	events := a.keyboardHook.GetEvents()
+	jsonData, err := json.Marshal(events)
+	if err != nil {
+		return "", fmt.Errorf("序列化键盘事件失败: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// GetKeyboardEventCount 获取键盘事件数量
+func (a *App) GetKeyboardEventCount() int {
+	if a.keyboardHook == nil {
+		return 0
+	}
+	return a.keyboardHook.GetEventCount()
+}
+
+// ========== 音频录制 API ==========
+
+// StartAudioRecording 开始录制音频
+func (a *App) StartAudioRecording(recordSystem bool, recordMic bool) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	ffmpegPath, err := a.ffmpegManager.GetFFmpegPath()
+	if err != nil {
+		return fmt.Errorf("获取 FFmpeg 路径失败: %w", err)
+	}
+
+	// 创建音频配置
+	config := recorder.DefaultAudioConfig()
+	config.RecordSystemAudio = recordSystem
+	config.RecordMicrophone = recordMic
+
+	// 创建音频录制器
+	a.audioRecorder = recorder.NewAudioRecorder(ffmpegPath, config)
+
+	// 开始录制
+	return a.audioRecorder.StartRecording(config)
+}
+
+// StopAudioRecording 停止录制音频并返回合并后的音频文件路径
+func (a *App) StopAudioRecording() (string, error) {
+	if a.audioRecorder == nil {
+		return "", fmt.Errorf("音频录制器未初始化")
+	}
+
+	return a.audioRecorder.StopRecording()
+}
+
+// GetAudioRecordingStatus 获取音频录制状态
+func (a *App) GetAudioRecordingStatus() map[string]interface{} {
+	if a.audioRecorder == nil {
+		return map[string]interface{}{
+			"isRecording": false,
+			"isPaused":    false,
+		}
+	}
+
+	return map[string]interface{}{
+		"isRecording": a.audioRecorder.IsRecording(),
+		"isPaused":    a.audioRecorder.IsPaused(),
+	}
+}
+
+// ListAudioDevices 列出可用的音频设备
+func (a *App) ListAudioDevices() ([]string, error) {
+	if a.ffmpegManager == nil {
+		return nil, fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	ffmpegPath, err := a.ffmpegManager.GetFFmpegPath()
+	if err != nil {
+		return nil, fmt.Errorf("获取 FFmpeg 路径失败: %w", err)
+	}
+
+	return recorder.ListAudioDevices(ffmpegPath)
+}
+
+// MergeAudioWithVideo 将音频和视频合并
+func (a *App) MergeAudioWithVideo(videoPath string, audioPath string, outputPath string) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	ffmpegPath, err := a.ffmpegManager.GetFFmpegPath()
+	if err != nil {
+		return fmt.Errorf("获取 FFmpeg 路径失败: %w", err)
+	}
+
+	return recorder.MergeAudioWithVideo(ffmpegPath, videoPath, audioPath, outputPath)
+}
+
+// ========== 完整录制工作流（视频+音频+键盘）==========
+
+// StartCompleteRecording 开始完整录制（视频+音频+鼠标+键盘）
+func (a *App) StartCompleteRecording(videoPath string, recordAudio bool, recordKeyboard bool) error {
+	// 1. 启动视频录制
+	if err := a.StartScreenRecording(videoPath); err != nil {
+		return fmt.Errorf("启动视频录制失败: %w", err)
+	}
+
+	// 2. 启动音频录制（如果需要）
+	if recordAudio {
+		if err := a.StartAudioRecording(true, true); err != nil {
+			fmt.Printf("警告: 音频录制启动失败: %v\n", err)
+			// 不中断，继续录制视频
+		}
+	}
+
+	// 3. 启动键盘录制（如果需要）
+	if recordKeyboard {
+		if err := a.StartKeyboardRecording(); err != nil {
+			fmt.Printf("警告: 键盘录制启动失败: %v\n", err)
+			// 不中断，继续录制
+		}
+	}
+
+	fmt.Println("✓ 完整录制已启动")
+	return nil
+}
+
+// StopCompleteRecording 停止完整录制并返回所有文件路径
+func (a *App) StopCompleteRecording() (map[string]string, error) {
+	result := make(map[string]string)
+
+	// 1. 停止视频录制
+	videoPath, mouseDataPath, err := a.StopScreenRecording()
+	if err != nil {
+		return nil, fmt.Errorf("停止视频录制失败: %w", err)
+	}
+	result["video"] = videoPath
+	result["mouseData"] = mouseDataPath
+
+	// 2. 停止音频录制
+	if a.audioRecorder != nil && a.audioRecorder.IsRecording() {
+		audioPath, err := a.StopAudioRecording()
+		if err != nil {
+			fmt.Printf("警告: 停止音频录制失败: %v\n", err)
+		} else {
+			result["audio"] = audioPath
+		}
+	}
+
+	// 3. 停止键盘录制
+	if a.keyboardHook != nil && a.keyboardHook.IsRecording() {
+		keyboardPath := videoPath[:len(videoPath)-4] + "_keyboard.json"
+		if err := a.StopKeyboardRecording(keyboardPath); err != nil {
+			fmt.Printf("警告: 停止键盘录制失败: %v\n", err)
+		} else {
+			result["keyboard"] = keyboardPath
+		}
+	}
+
+	fmt.Println("✓ 完整录制已停止")
+	return result, nil
 }
