@@ -26,11 +26,15 @@ type App struct {
 	ffmpegManager  *ffmpeg.FFmpegManager
 	recorder       *recorder.Recorder
 	mouseHook      *hook.MouseHook
+	keyboardHook   *hook.KeyboardHook
+	audioRecorder  *recorder.AudioRecorder
 	fileWriter     *io.FileWriter
 	pipeWriter     *recorder.PipeWriter
 	httpPipeServer *recorder.HttpPipeServer
 	fileServer     *server.FileServer
 	videoWriter    *recorder.VideoWriter
+	exporter       *recorder.Exporter
+	gpuExporter    *recorder.GPUExporter
 }
 
 // NewApp creates a new App application struct
@@ -547,4 +551,418 @@ func (a *App) DeleteFile(filePath string) error {
 		return fmt.Errorf("删除文件失败: %w", err)
 	}
 	return nil
+}
+
+// ========== GPU 加速导出 API ==========
+
+// ExportWithGPU GPU 加速导出（推荐）
+// 使用 FFmpeg 硬件加速和滤镜链直接处理视频，无需前端渲染
+// 这是最高效的导出方法
+func (a *App) ExportWithGPU(videoPath string, mouseDataPath string, outputPath string, screenWidth int, screenHeight int, fps int) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建 GPU 导出器
+	a.gpuExporter = recorder.NewGPUExporter(a.ffmpegManager)
+
+	// 配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 准备导出
+	if err := a.gpuExporter.PrepareExport(config); err != nil {
+		return fmt.Errorf("准备 GPU 导出失败: %w", err)
+	}
+
+	// 执行 GPU 加速导出
+	fmt.Println("开始 GPU 加速导出...")
+	if err := a.gpuExporter.ExportWithGPU(); err != nil {
+		return fmt.Errorf("GPU 导出失败: %w", err)
+	}
+
+	return nil
+}
+
+// ExportWithGPUSegmented GPU 加速分段导出
+// 使用分段处理获得更精确的相机控制
+// 适合长视频或需要精确相机运动的场景
+func (a *App) ExportWithGPUSegmented(videoPath string, mouseDataPath string, outputPath string, screenWidth int, screenHeight int, fps int) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建 GPU 导出器
+	a.gpuExporter = recorder.NewGPUExporter(a.ffmpegManager)
+
+	// 配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 准备导出
+	if err := a.gpuExporter.PrepareExport(config); err != nil {
+		return fmt.Errorf("准备 GPU 分段导出失败: %w", err)
+	}
+
+	// 执行分段导出
+	fmt.Println("开始 GPU 加速分段导出...")
+	if err := a.gpuExporter.ExportWithSegments(); err != nil {
+		return fmt.Errorf("GPU 分段导出失败: %w", err)
+	}
+
+	return nil
+}
+
+// StopGPUExport 停止 GPU 导出
+func (a *App) StopGPUExport() error {
+	if a.gpuExporter == nil {
+		return fmt.Errorf("GPU 导出器未初始化")
+	}
+
+	return a.gpuExporter.Stop()
+}
+
+// GetGPUExportProgress 获取 GPU 导出进度
+func (a *App) GetGPUExportProgress() float64 {
+	if a.gpuExporter == nil {
+		return 0.0
+	}
+
+	return a.gpuExporter.GetProgress()
+}
+
+// ========== 增强导出相关 API（带相机运动） ==========
+
+// PrepareExport 准备导出（加载鼠标数据并生成相机路径）
+func (a *App) PrepareExport(videoPath string, mouseDataPath string, outputPath string, screenWidth int, screenHeight int, fps int) (map[string]interface{}, error) {
+	if a.ffmpegManager == nil {
+		return nil, fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建导出配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 创建导出器
+	a.exporter = recorder.NewExporter(a.ffmpegManager, config)
+
+	// 准备导出
+	if err := a.exporter.PrepareExport(); err != nil {
+		return nil, fmt.Errorf("准备导出失败: %w", err)
+	}
+
+	// 返回导出信息
+	info := a.exporter.GetExportInfo()
+	fmt.Printf("导出准备完成: %+v\n", info)
+
+	return info, nil
+}
+
+// GetCameraFrames 获取生成的相机帧数据（用于前端预览和渲染）
+func (a *App) GetCameraFrames() (string, error) {
+	if a.exporter == nil {
+		return "", fmt.Errorf("导出器未初始化，请先调用 PrepareExport")
+	}
+
+	frames := a.exporter.GetCameraFrames()
+	if len(frames) == 0 {
+		return "", fmt.Errorf("没有相机帧数据")
+	}
+
+	// 转换为 JSON
+	jsonData, err := json.Marshal(frames)
+	if err != nil {
+		return "", fmt.Errorf("序列化相机帧失败: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// SaveCameraPath 保存相机路径到文件（用于调试）
+func (a *App) SaveCameraPath(outputPath string) error {
+	if a.exporter == nil {
+		return fmt.Errorf("导出器未初始化，请先调用 PrepareExport")
+	}
+
+	return a.exporter.SaveCameraPath(outputPath)
+}
+
+// GetExportInfo 获取导出信息
+func (a *App) GetExportInfo() map[string]interface{} {
+	if a.exporter == nil {
+		return map[string]interface{}{
+			"error": "导出器未初始化",
+		}
+	}
+
+	return a.exporter.GetExportInfo()
+}
+
+// ========== 键盘事件录制 API ==========
+
+// StartKeyboardRecording 开始录制键盘事件
+func (a *App) StartKeyboardRecording() error {
+	if a.keyboardHook == nil {
+		a.keyboardHook = hook.NewKeyboardHook()
+	}
+
+	return a.keyboardHook.StartRecording()
+}
+
+// StopKeyboardRecording 停止录制键盘事件并返回文件路径
+func (a *App) StopKeyboardRecording(outputPath string) error {
+	if a.keyboardHook == nil {
+		return fmt.Errorf("键盘钩子未初始化")
+	}
+
+	if err := a.keyboardHook.StopRecording(); err != nil {
+		return err
+	}
+
+	// 保存到文件
+	return a.keyboardHook.SaveToFile(outputPath)
+}
+
+// GetKeyboardEvents 获取键盘事件（JSON 字符串）
+func (a *App) GetKeyboardEvents() (string, error) {
+	if a.keyboardHook == nil {
+		return "", fmt.Errorf("键盘钩子未初始化")
+	}
+
+	events := a.keyboardHook.GetEvents()
+	jsonData, err := json.Marshal(events)
+	if err != nil {
+		return "", fmt.Errorf("序列化键盘事件失败: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// GetKeyboardEventCount 获取键盘事件数量
+func (a *App) GetKeyboardEventCount() int {
+	if a.keyboardHook == nil {
+		return 0
+	}
+	return a.keyboardHook.GetEventCount()
+}
+
+// ========== 音频录制 API ==========
+
+// StartAudioRecording 开始录制音频
+func (a *App) StartAudioRecording(recordSystem bool, recordMic bool) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	ffmpegPath, err := a.ffmpegManager.GetFFmpegPath()
+	if err != nil {
+		return fmt.Errorf("获取 FFmpeg 路径失败: %w", err)
+	}
+
+	// 创建音频配置
+	config := recorder.DefaultAudioConfig()
+	config.RecordSystemAudio = recordSystem
+	config.RecordMicrophone = recordMic
+
+	// 创建音频录制器
+	a.audioRecorder = recorder.NewAudioRecorder(ffmpegPath, config)
+
+	// 开始录制
+	return a.audioRecorder.StartRecording(config)
+}
+
+// StopAudioRecording 停止录制音频并返回合并后的音频文件路径
+func (a *App) StopAudioRecording() (string, error) {
+	if a.audioRecorder == nil {
+		return "", fmt.Errorf("音频录制器未初始化")
+	}
+
+	return a.audioRecorder.StopRecording()
+}
+
+// GetAudioRecordingStatus 获取音频录制状态
+func (a *App) GetAudioRecordingStatus() map[string]interface{} {
+	if a.audioRecorder == nil {
+		return map[string]interface{}{
+			"isRecording": false,
+			"isPaused":    false,
+		}
+	}
+
+	return map[string]interface{}{
+		"isRecording": a.audioRecorder.IsRecording(),
+		"isPaused":    a.audioRecorder.IsPaused(),
+	}
+}
+
+// ListAudioDevices 列出可用的音频设备
+func (a *App) ListAudioDevices() ([]string, error) {
+	if a.ffmpegManager == nil {
+		return nil, fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	ffmpegPath, err := a.ffmpegManager.GetFFmpegPath()
+	if err != nil {
+		return nil, fmt.Errorf("获取 FFmpeg 路径失败: %w", err)
+	}
+
+	return recorder.ListAudioDevices(ffmpegPath)
+}
+
+// MergeAudioWithVideo 将音频和视频合并
+func (a *App) MergeAudioWithVideo(videoPath string, audioPath string, outputPath string) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	ffmpegPath, err := a.ffmpegManager.GetFFmpegPath()
+	if err != nil {
+		return fmt.Errorf("获取 FFmpeg 路径失败: %w", err)
+	}
+
+	return recorder.MergeAudioWithVideo(ffmpegPath, videoPath, audioPath, outputPath)
+}
+
+// ========== 完整录制工作流（视频+音频+键盘）==========
+
+// StartCompleteRecording 开始完整录制（视频+音频+鼠标+键盘）
+func (a *App) StartCompleteRecording(videoPath string, recordAudio bool, recordKeyboard bool) error {
+	// 1. 启动视频录制
+	if err := a.StartScreenRecording(videoPath); err != nil {
+		return fmt.Errorf("启动视频录制失败: %w", err)
+	}
+
+	// 2. 启动音频录制（如果需要）
+	if recordAudio {
+		if err := a.StartAudioRecording(true, true); err != nil {
+			fmt.Printf("警告: 音频录制启动失败: %v\n", err)
+			// 不中断，继续录制视频
+		}
+	}
+
+	// 3. 启动键盘录制（如果需要）
+	if recordKeyboard {
+		if err := a.StartKeyboardRecording(); err != nil {
+			fmt.Printf("警告: 键盘录制启动失败: %v\n", err)
+			// 不中断，继续录制
+		}
+	}
+
+	fmt.Println("✓ 完整录制已启动")
+	return nil
+}
+
+// StopCompleteRecording 停止完整录制并返回所有文件路径
+func (a *App) StopCompleteRecording() (map[string]string, error) {
+	result := make(map[string]string)
+
+	// 1. 停止视频录制
+	videoPath, mouseDataPath, err := a.StopScreenRecording()
+	if err != nil {
+		return nil, fmt.Errorf("停止视频录制失败: %w", err)
+	}
+	result["video"] = videoPath
+	result["mouseData"] = mouseDataPath
+
+	// 2. 停止音频录制
+	if a.audioRecorder != nil && a.audioRecorder.IsRecording() {
+		audioPath, err := a.StopAudioRecording()
+		if err != nil {
+			fmt.Printf("警告: 停止音频录制失败: %v\n", err)
+		} else {
+			result["audio"] = audioPath
+		}
+	}
+
+	// 3. 停止键盘录制
+	if a.keyboardHook != nil && a.keyboardHook.IsRecording() {
+		keyboardPath := videoPath[:len(videoPath)-4] + "_keyboard.json"
+		if err := a.StopKeyboardRecording(keyboardPath); err != nil {
+			fmt.Printf("警告: 停止键盘录制失败: %v\n", err)
+		} else {
+			result["keyboard"] = keyboardPath
+		}
+	}
+
+	fmt.Println("✓ 完整录制已停止")
+	return result, nil
+}
+
+// ========== 自定义参数导出 API ==========
+
+// ExportWithCustomParams 使用自定义参数导出视频
+// customParamsJSON: 自定义动画参数的 JSON 字符串
+// bgParamsJSON: 背景参数的 JSON 字符串
+// cursorImage: 光标图片（base64 或文件路径）
+func (a *App) ExportWithCustomParams(
+	videoPath string,
+	mouseDataPath string,
+	outputPath string,
+	screenWidth int,
+	screenHeight int,
+	fps int,
+	customParamsJSON string,
+	bgParamsJSON string,
+	cursorImage string,
+) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建自定义导出器
+	customExporter := recorder.NewCustomExporter(a.ffmpegManager)
+
+	// 创建导出配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 准备导出
+	if err := customExporter.PrepareCustomExport(config, customParamsJSON, bgParamsJSON, cursorImage); err != nil {
+		return fmt.Errorf("准备自定义导出失败: %w", err)
+	}
+
+	// 执行导出
+	fmt.Println("开始自定义参数导出...")
+	if err := customExporter.ExportWithCustomParams(); err != nil {
+		return fmt.Errorf("自定义导出失败: %w", err)
+	}
+
+	return nil
+}
+
+// ExportWithCustomParamsGPU 使用自定义参数和 GPU 加速导出
+func (a *App) ExportWithCustomParamsGPU(
+	videoPath string,
+	mouseDataPath string,
+	outputPath string,
+	screenWidth int,
+	screenHeight int,
+	fps int,
+	customParamsJSON string,
+	bgParamsJSON string,
+	cursorImage string,
+) error {
+	// 与 ExportWithCustomParams 类似，但使用 GPU 加速
+	// 这里可以复用 GPUExporter 的逻辑，并传递自定义参数
+	return a.ExportWithCustomParams(videoPath, mouseDataPath, outputPath, screenWidth, screenHeight, fps, customParamsJSON, bgParamsJSON, cursorImage)
 }

@@ -1,0 +1,76 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Build output
+/build/
+/bin/
+dist/
+
+# Wails build files
+wails_*
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
+frontend/.vite/
+frontend/.npm/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Output files
+output/
+*.mp4
+*.h264
+*.json
+!package.json
+!package-lock.json
+!wails.json
+
+# FFmpeg binary (not included in repo due to size)
+ffmpeg/
+ffmpeg.exe
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# Debug files
+debug/
+*.pprof
+
+# Environment files
+.env
+.env.local
+
+# Test coverage
+coverage.txt
+coverage.html
