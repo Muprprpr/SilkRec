@@ -31,6 +31,8 @@ type App struct {
 	httpPipeServer *recorder.HttpPipeServer
 	fileServer     *server.FileServer
 	videoWriter    *recorder.VideoWriter
+	exporter       *recorder.Exporter
+	gpuExporter    *recorder.GPUExporter
 }
 
 // NewApp creates a new App application struct
@@ -547,4 +549,164 @@ func (a *App) DeleteFile(filePath string) error {
 		return fmt.Errorf("删除文件失败: %w", err)
 	}
 	return nil
+}
+
+// ========== GPU 加速导出 API ==========
+
+// ExportWithGPU GPU 加速导出（推荐）
+// 使用 FFmpeg 硬件加速和滤镜链直接处理视频，无需前端渲染
+// 这是最高效的导出方法
+func (a *App) ExportWithGPU(videoPath string, mouseDataPath string, outputPath string, screenWidth int, screenHeight int, fps int) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建 GPU 导出器
+	a.gpuExporter = recorder.NewGPUExporter(a.ffmpegManager)
+
+	// 配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 准备导出
+	if err := a.gpuExporter.PrepareExport(config); err != nil {
+		return fmt.Errorf("准备 GPU 导出失败: %w", err)
+	}
+
+	// 执行 GPU 加速导出
+	fmt.Println("开始 GPU 加速导出...")
+	if err := a.gpuExporter.ExportWithGPU(); err != nil {
+		return fmt.Errorf("GPU 导出失败: %w", err)
+	}
+
+	return nil
+}
+
+// ExportWithGPUSegmented GPU 加速分段导出
+// 使用分段处理获得更精确的相机控制
+// 适合长视频或需要精确相机运动的场景
+func (a *App) ExportWithGPUSegmented(videoPath string, mouseDataPath string, outputPath string, screenWidth int, screenHeight int, fps int) error {
+	if a.ffmpegManager == nil {
+		return fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建 GPU 导出器
+	a.gpuExporter = recorder.NewGPUExporter(a.ffmpegManager)
+
+	// 配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 准备导出
+	if err := a.gpuExporter.PrepareExport(config); err != nil {
+		return fmt.Errorf("准备 GPU 分段导出失败: %w", err)
+	}
+
+	// 执行分段导出
+	fmt.Println("开始 GPU 加速分段导出...")
+	if err := a.gpuExporter.ExportWithSegments(); err != nil {
+		return fmt.Errorf("GPU 分段导出失败: %w", err)
+	}
+
+	return nil
+}
+
+// StopGPUExport 停止 GPU 导出
+func (a *App) StopGPUExport() error {
+	if a.gpuExporter == nil {
+		return fmt.Errorf("GPU 导出器未初始化")
+	}
+
+	return a.gpuExporter.Stop()
+}
+
+// GetGPUExportProgress 获取 GPU 导出进度
+func (a *App) GetGPUExportProgress() float64 {
+	if a.gpuExporter == nil {
+		return 0.0
+	}
+
+	return a.gpuExporter.GetProgress()
+}
+
+// ========== 增强导出相关 API（带相机运动） ==========
+
+// PrepareExport 准备导出（加载鼠标数据并生成相机路径）
+func (a *App) PrepareExport(videoPath string, mouseDataPath string, outputPath string, screenWidth int, screenHeight int, fps int) (map[string]interface{}, error) {
+	if a.ffmpegManager == nil {
+		return nil, fmt.Errorf("FFmpeg 管理器未初始化")
+	}
+
+	// 创建导出配置
+	config := recorder.DefaultExportConfig()
+	config.VideoPath = videoPath
+	config.MouseDataPath = mouseDataPath
+	config.OutputPath = outputPath
+	config.ScreenWidth = screenWidth
+	config.ScreenHeight = screenHeight
+	config.FPS = fps
+
+	// 创建导出器
+	a.exporter = recorder.NewExporter(a.ffmpegManager, config)
+
+	// 准备导出
+	if err := a.exporter.PrepareExport(); err != nil {
+		return nil, fmt.Errorf("准备导出失败: %w", err)
+	}
+
+	// 返回导出信息
+	info := a.exporter.GetExportInfo()
+	fmt.Printf("导出准备完成: %+v\n", info)
+
+	return info, nil
+}
+
+// GetCameraFrames 获取生成的相机帧数据（用于前端预览和渲染）
+func (a *App) GetCameraFrames() (string, error) {
+	if a.exporter == nil {
+		return "", fmt.Errorf("导出器未初始化，请先调用 PrepareExport")
+	}
+
+	frames := a.exporter.GetCameraFrames()
+	if len(frames) == 0 {
+		return "", fmt.Errorf("没有相机帧数据")
+	}
+
+	// 转换为 JSON
+	jsonData, err := json.Marshal(frames)
+	if err != nil {
+		return "", fmt.Errorf("序列化相机帧失败: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// SaveCameraPath 保存相机路径到文件（用于调试）
+func (a *App) SaveCameraPath(outputPath string) error {
+	if a.exporter == nil {
+		return fmt.Errorf("导出器未初始化，请先调用 PrepareExport")
+	}
+
+	return a.exporter.SaveCameraPath(outputPath)
+}
+
+// GetExportInfo 获取导出信息
+func (a *App) GetExportInfo() map[string]interface{} {
+	if a.exporter == nil {
+		return map[string]interface{}{
+			"error": "导出器未初始化",
+		}
+	}
+
+	return a.exporter.GetExportInfo()
 }
