@@ -508,8 +508,8 @@ func (a *App) FinalizeH264Export(h264Path string, audioPath string, outputPath s
 // MuxH264ToMp4 将 H.264 裸流封装为 MP4
 // 参数:
 //
-//	inputPath: 临时生成的 .h264 文件路径
-//	outputPath: 最终的 .mp4 输出路径
+//    inputPath: 临时生成的 .h264 文件路径
+//    outputPath: 最终的 .mp4 输出路径
 func (a *App) MuxH264ToMp4(inputPath string, outputPath string) error {
 	// 1. 确定 FFmpeg 可执行文件路径
 	ffmpegPath := "ffmpeg"
